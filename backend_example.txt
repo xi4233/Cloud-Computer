@@ -1,0 +1,128 @@
+"""
+远程开机后端适配文档
+====================
+
+本文件说明前端控制面板（index.html）所期望的后端 API 规范，
+并提供一个基于 Flask 的最小可运行示例。
+
+一、API 规范
+-----------
+
+端点：POST /start_vm
+请求头：Content-Type: application/json
+请求体：无（前端当前不发送请求体，如需扩展可自行添加）
+
+响应格式：JSON，必须包含 "status" 字段，可选包含 "message" 字段。
+
+status 取值及含义：
+  - "success"         虚拟机启动成功
+  - "already_running" 虚拟机已在运行，无需重复启动
+  - "failed"          启动失败，message 中应包含错误原因
+
+响应示例：
+
+1. 启动成功
+   HTTP 200
+   {"status": "success", "message": "VM ubuntu-server-01 已启动"}
+
+2. 已在运行
+   HTTP 200
+   {"status": "already_running", "message": "VM 已在运行中"}
+
+3. 启动失败
+   HTTP 200 或 5xx
+   {"status": "failed", "message": "无法连接虚拟机管理程序"}
+
+前端行为：
+  - 超时 10 秒，超时后显示"请求超时"
+  - 非 2xx HTTP 状态码视为网络错误
+  - 无法解析 JSON 或网络异常均显示错误提示
+
+
+二、CORS 配置
+------------
+
+前端以 file:// 或不同端口访问时，浏览器会执行 CORS 预检。
+后端必须允许跨域请求，否则前端无法正常通信。
+
+Flask 示例（使用 flask-cors）：
+  from flask_cors import CORS
+  app = Flask(__name__)
+  CORS(app)
+
+或手动添加响应头：
+  @app.after_request
+  def add_cors(response):
+      response.headers["Access-Control-Allow-Origin"] = "*"
+      response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+      response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+      return response
+
+
+三、Flask 最小可运行示例
+-----------------------
+"""
+
+# ============================================================
+#  以下为可直接运行的 Flask 后端示例
+#  安装依赖：pip install flask flask-cors
+#  启动命令：python backend_example.py
+#  监听地址：http://localhost:5000
+# ============================================================
+
+from flask import Flask, jsonify, request
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)
+
+VM_STATE = {"running": False}
+
+
+@app.route("/start_vm", methods=["POST", "OPTIONS"])
+def start_vm():
+    if request.method == "OPTIONS":
+        return jsonify(), 200
+
+    if VM_STATE["running"]:
+        return jsonify({
+            "status": "already_running",
+            "message": "虚拟机已在运行中"
+        })
+
+    # ---- 在此处替换为真实的虚拟机启动逻辑 ----
+    # 例如调用 libvirt、VBoxManage、qemu 命令等：
+    #
+    # import subprocess
+    # result = subprocess.run(
+    #     ["VBoxManage", "startvm", "my-vm", "--type", "headless"],
+    #     capture_output=True, text=True
+    # )
+    # if result.returncode != 0:
+    #     return jsonify({"status": "failed", "message": result.stderr.strip()})
+    #
+    # 或者通过 SSH 远程执行：
+    # import paramiko
+    # ssh = paramiko.SSHClient()
+    # ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    # ssh.connect("192.168.1.100", username="user", password="pass")
+    # stdin, stdout, stderr = ssh.exec_command("virsh start ubuntu-server")
+    # ...
+    # ------------------------------------------
+
+    VM_STATE["running"] = True
+    return jsonify({
+        "status": "success",
+        "message": "虚拟机已成功启动"
+    })
+
+
+@app.route("/reset_vm_state", methods=["POST"])
+def reset_state():
+    """辅助端点：重置虚拟机状态（仅用于演示）"""
+    VM_STATE["running"] = False
+    return jsonify({"status": "ok", "message": "状态已重置"})
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
